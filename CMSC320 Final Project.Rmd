@@ -1,0 +1,487 @@
+---
+output: html_document
+---
+
+# **Using Data Science to Answer Hip Hop's Most Disputed Questions**
+
+### *Martin Elliott -- CMSC320 Final Project*
+
+### **Introduction** ###
+
+To me, the power in Data Science lies in its ability to quantify things in our lives and provide answers to meaningful questions about them. I am very passionate about music, particularly hip hop, and thought it would be interesting and useful to use data science to empirically answer a few questions about it.
+
+Every single fan of rap music has several strong opinions which they assume are absolute truths and that conflicting statement must be an uninformed lie. Greatest emcee of all time. Best album. West Coast vs. East Coast. Personal top five. Current hottest artists. And possibly the most controversial question of all, which I've seen spark uncountable heated debates - best Kanye album.
+
+### **How do we talk about music objectively?** ###
+
+As I said before, the power in Data Science is through quantification. Music is art, which is challenging to quantify - there isn't a definitive way to prove one piece of art is better than another. Luckily for us though, we have a few ways of getting pretty close to this.
+
+
+I thought about trying to answer the question of is the greatest rapper of all time, but then thought of something a little more realistic and useful. There are many factors that would be brought up in this type of discussion, from which I have selected three that I think do a good job of encompassing the overall quality of a rapper. It will be much easier to rank rappers in these categories than by their overall artistry. By getting this data, we will also be able to answer lots of questions along the way. Here are these three factors, why I felt they were important, and how we will approach getting data for them and analyzing them:
+
+
+*Critical Reception* 
+
+* **Why it matters:** I think it is apparent how important it is to include professional opinions in the discussion of how good an artist is. People who listen to music with an objective mindset for their occupation tend to become good at it. There are countless forms of art, music included, that lots of people have liked, but are not considered 'good' in the typical sense of the word. Critics can help us filter through what a mainstream audience likes and get opinions coming from a more knowledgeable background.
+
+*  **How we will approach it:** Critics often do the hard work of quantifying their own opinions for us, in the form of numerical ratings or stars. There are plenty of music websites which we can pull from and even review aggregator sites which will help us.
+
+
+*Fandom* - 
+
+* **Why it matters:** It is important to examine fandom when determining how good an artist is. While critical reception is important, it isn't everything. There are plenty of cult classics that were panned or overlooked by critics but sparked a huge following from dedicated fans. And at the end of the day, it's the fans, not the critics, that decide how successful and well-received the artist is.
+
+* **How we will approach it:** We are helped out here for the same reason that critics exist. People love giving their opinions. We have lots of already-quantified data to work with here.
+
+
+*Popularity* - 
+
+* **Why it matters:** Obviously popularity is a huge factor in trying to determine who the best rapper of all time is. Every rapper in contention for this title has touched a generation and had a special place in the heart of millions.
+
+* **How we will approach it:** The most obvious objective measure of popularity we can use is sales. What appears to be an obvious flaw in using sale data to determine popularity is the rise of music streaming which would obviously detract from album sales. (which it has) Thankfully, though, the Recording Industry Association of America (RIAA) which tracks sale data has started factoring in streaming as well in total sale data for a record.
+
+So now that we have an idea of what we will be looking at, let's begin by getting some data.
+
+### **Data Acquisition** ###
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First things first, we need to load packages. *rvest* and *dplyr*, will be used for data scraping, and tidying, respectively. We will also load *ggplot2* which will be used in making plots to answer some questions. *broom* helps us tidy up a few linear models which we will be using, *httr* for data scraping, and *stringr* for some string operations later on.
+
+```{r load packages, message = FALSE}
+
+library(rvest)
+library(dplyr)
+library(ggplot2)
+library(broom)
+library(httr)
+library(stringr)
+
+```
+
+Now we can move on to each of our three categories which we will be looking at.
+
+*Critical Reception*
+
+There are hundreds of websites which host critical reviews of music, but lucky for us, we have review aggregators which have already done most of the work.
+
+My first thought was to look at music data from popular review aggregator website [metacritic](http://metacritic.com). I pulled up their [highest ranked albums of all time](http://www.metacritic.com/browse/albums/score/metascore/all/filtered?sort=desc) and thought I had found my source for critical reception. Upon further inspect, however, the HTML data was arranged in a weird way which would have made scraping it unnecesarrily complicated. 
+
+So I turned elsewhere. My next stop was [acclaimedmusic.net](http://www.acclaimedmusic.net), specifically their [top 3000 albums of all time](http://www.acclaimedmusic.net/year/alltime_albums.htm). This website is an aggregation project that takes a look at numerous album lists and reviews. Luckily, this website is more HTML-friendly - on top of that, we have plenty of data on one page (3000 albums, as compared to only 100 per page on metacritic). Now we can go ahead and start scraping.
+
+```{r acclaimedmusic scrape}
+
+# url of page to be used
+
+acclaimedmusic_url <- "http://www.acclaimedmusic.net/year/alltime_albums.htm"
+
+# read HTML of url we provide, select the node we want, and turn it into a table
+
+acclaimedmusic_dl_tab <- acclaimedmusic_url %>%
+  read_html() %>%
+  html_nodes(".center") %>%
+  html_table()
+
+# due to the way their website is set up, the dataframe we want is technically in a list, so we pull it out like this
+
+acclaimedmusic_df <- acclaimedmusic_dl_tab[[1]]
+
+# let's take a look
+
+head(acclaimedmusic_df)
+
+```
+
+We now have some sort of dataframe starting to represent the data we want. Next, we'll tidy it up so it's a little more useful.
+
+```{r acclaimedmusic tidy}
+
+# first, we drop the first row containing column headers
+
+acclaimedmusic_df <- acclaimedmusic_df[-1,]
+
+# next, we label the columns
+
+colnames(acclaimedmusic_df)=c("Rank","Artist","Album","Genre","Year")
+
+# because we are looking at hip hop, we want to only include music that is some type of hip hop or rap
+
+acclaimedmusic_df <- acclaimedmusic_df %>% filter(grepl("Hip Hop", Genre) | grepl("Rap", Genre))
+
+# now that we have our data filtered to only the albums we want, we can update the ranks of our albums so that they are specific to hip-hop
+
+acclaimedmusic_df$Rank <- seq.int(nrow(acclaimedmusic_df))
+
+# storing years as integers instead of strings will allow us to use them in calculations
+
+acclaimedmusic_df$Year = as.integer(acclaimedmusic_df$Year)
+
+# let's take a look
+
+head(acclaimedmusic_df)
+
+```
+
+Now we have a dataframe full of relevant data which we will start being able to draw conclusions from. For example, one topic that comes up frequently in Hip Hop discussion is whether music has been getting better or worse over time and when Hip Hop's "Golden Age" was. We can scratch the surface of this question with a simple plot of rank vs. year. 
+
+```{r acclaimedmusic plot}
+
+acclaimedmusic_df %>% ggplot(aes(x = Year, y = Rank)) + geom_point() + geom_smooth(method = 'lm', se = FALSE) + scale_x_continuous(breaks = seq(1980, 2016, by = 4)) + scale_y_reverse() + ggtitle("Rank of 160 Highest Rated Hip Hop Albums Over Time") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+It looks like ranks may be decreasing over time. Let's try to fit this to a linear model.
+
+```{r acclaimedmusic linearmodel}
+
+acclaimedmusic_fit <- lm(Rank ~ Year, data = acclaimedmusic_df) %>% tidy()
+acclaimedmusic_fit
+
+```
+
+As we can see, rank increases .45 per year (which is a bad thing because lower ranks are better). However, we have a p-value of .259 for this, which is much higher than our standard confidence interval of .05, so would fail to reject the null hypothesis which would state that year has no effect on rank. In other words, rank is not dependant on year, and music isn't necesarrily getting worse.
+
+Another interesting prompt we can look into with this data is the frequency of artists on the list, including who appears the most.
+
+```{r acclaimedmusic frequency}
+
+acclaimedmusic_artist_table <- table(acclaimedmusic_df$Artist)
+acclaimedmusic_artist_df <- as.data.frame(acclaimedmusic_artist_table) %>% arrange(desc(Freq))
+head(acclaimedmusic_artist_df, 10)
+
+```
+
+
+*Fandom*
+
+For getting a list of highest rated albums by fans, I will be using the website [rateyourmusic.com](https://rateyourmusic.com/). They have a robust chart system for ranking music which we will configure for [highest rated hip hop albums of all time](https://rateyourmusic.com/customchart?page=1&chart_type=top&type=album&year=alltime&genre_include=1&include_child_genres=1&genres=hip+hop&include_child_genres_chk=1&include=both&origin_countries=&limit=none&countries=). They use a weighting system which slightly favors users who give lots of varied ratings, which is why the albums are slightly out of order by rating. Their website can easily be scraped, but unfortunately there are only 40 albums per page - we are going to need to be a little clever here when scraping. With a simple for loop, we can construct URLs for different pages and for each page, augment the we alredy have with data from this page. Through some trial and error, it turns out that websites don't exactly like receiving multiple HTTP requests per second, so we are also going to have to add random delays before each time we try to get data from the website to trick it into thinking we are human.
+
+
+```{r rateyourmusic scrape}
+
+# beginning of url
+
+rateyourmusic_url_beginning <- "https://rateyourmusic.com/customchart?page="
+
+# end of url
+
+rateyourmusic_url_end <- "&chart_type=top&type=album&year=alltime&genre_include=1&include_child_genres=1&genres=hip+hop&include_child_genres_chk=1&include=both&origin_countries=&limit=none&countries="
+
+# we will be scraping the first 5 pages, so we use a for loop from 1 to 5
+
+for (i in 1:5) {
+  
+  # construct the url we will be scraping from by combining the beginning of the url with the page number we want and the end of the url
+  
+  rateyourmusic_url <- paste0(rateyourmusic_url_beginning, i, rateyourmusic_url_end)
+  
+  # make our request from the server
+  
+  request <- rateyourmusic_url %>% GET(add_headers("user-agent" = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0)", "Cache-Control" = "no-cache"))
+  
+  # add some random delay to our requests to keep the website from thinking we're a robot
+  
+  Sys.sleep(sample(10, 1) * 0.5)
+  if (i == 1) {
+    # create a new table for the first page
+    rateyourmusic_tab <- request %>%
+      read_html() %>%
+      html_node("table.mbgen") %>% 
+      html_table(fill = TRUE)
+  }
+  else {
+    # append to our table for the following pages
+    new_tab <- request %>%
+      read_html() %>%
+      html_node("table.mbgen") %>%
+      html_table(fill = TRUE)
+    rateyourmusic_tab <- rbind(rateyourmusic_tab, new_tab)
+  }
+}
+
+# let's take a look
+head(rateyourmusic_tab)
+
+```
+
+We now have everything we need in a table. Unfortunately, this is not as clean as the previous website we scraped from, so we're going to have to work a little harder in tidying it. 
+
+```{r rateyourmusic tidy}
+
+# first we remove all the rows that had ads in them - because they were using Google's ad framework we can just remove all rows with the word "google" in them
+
+rateyourmusic_df <- (rateyourmusic_tab[- grep("google", rateyourmusic_tab$X2), ])
+
+# the third column is where all the information we need is in
+
+rateyourmusic_df <- rateyourmusic_df[, 3] %>% as.data.frame()
+
+# different values we need in this column are separated by newline characters, so we can split this column into multiple columns with the newline character as our delimiter
+
+rateyourmusic_df <- data.frame(do.call('rbind', strsplit(as.character(rateyourmusic_df$.),'\n',fixed=TRUE))) %>% select(c("X1", "X2", "X6", "X20", "X21"))
+
+# set our column names
+
+colnames(rateyourmusic_df)=c("Rank","Artist","Album","Rating","Ratings")
+
+# what we have so far
+
+head(rateyourmusic_df)
+
+```
+
+We're starting to get close to the data we want here. We now have to use some string operations to extract the year our of the album title and add that to a new column, and take only the numeric value for the rating and ratings column. After that, we want to make sure numbers are encoded as such so we can use them effectively.
+
+```{r rateyourmusic tidy2}
+
+# encode rank numerically, extract year and encode it numerically as a new variable, extract album title as new variable, and encode rating and ratings as new numerical variables
+
+rateyourmusic_df <- rateyourmusic_df %>% mutate(Rank = as.integer(substr(as.character(Rank), 1, nchar(as.character(Rank))))) %>% mutate(Year = as.integer(substr(as.character(Album), nchar(as.character(Album))-5+1, nchar(as.character(Album)) - 1))) %>% mutate(Album = substr(as.character(Album), 1, nchar(as.character(Album)) - 7)) %>% mutate(Rating = as.double(substr(as.character(Rating), nchar(as.character(Rating)) - 4, nchar(as.character(Rating))))) %>% mutate(Ratings = as.integer(gsub(",", "", substr(trimws(as.character(Ratings)), 11, nchar(trimws(as.character(Ratings)))))))
+
+# the final product for user rating data
+
+head(rateyourmusic_df)
+
+```
+
+Now we have a good amount of usable data for user ratings, so let's take a look at a few of the same things we looked at for critic data and see how they compare.
+
+```{r rateyourmusic plot}
+
+rateyourmusic_df %>% ggplot(aes(x = Year, y = Rating)) + ggtitle("Ratings of Top 200 Hip Hop Albums on RYM Over Time") + geom_point() + geom_smooth(method = "lm", se = FALSE) + scale_x_continuous(breaks = seq(1986, 2018, by = 4)) + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+There are a few things worth noting about this graph. The first is the apparent decrease in ratings over time which we will look at more in-depth soon. The second is the number of observations per year. From 1990-2000 there seem to have been many great albums released and almot none from 2007-2010.
+
+Let's see if the decrease in rating over time is statistically significant or not.
+
+```{r rateyourmusic fit}
+
+rateyourmusic_fit <- lm(Rank ~ Year, data = rateyourmusic_df) %>% tidy()
+rateyourmusic_fit
+
+```
+
+For this linear regression model we have a p-value under our standard confidence interval, unlike the critical data. We would reject the null hypothesis in this case, which means that this rating drop over time might be more than just a statistical outlier - in other words, hip hop may actually be getting worse.
+
+Let's look at the artist breakdown for this data.
+
+```{r rateyourmusic frequency}
+
+rateyourmusic_artist_table <- table(rateyourmusic_df$Artist)
+rateyourmusic_artist_df <- as.data.frame(rateyourmusic_artist_table) %>% arrange(desc(Freq))
+head(rateyourmusic_artist_df, 10)
+
+```
+
+It will also be interesting to see what years seem to be the best and worst for hip hop.
+
+```{r rateyourmusic year frequency}
+
+rateyourmusic_year_table <- table(rateyourmusic_df$Year)
+rateyourmusic_year_df <- as.data.frame(rateyourmusic_year_table) %>% arrange(desc(Freq))
+head(rateyourmusic_year_df, 10)
+
+```
+
+It seems that the 1990s was an incredible decade for hip hop, with a whopping 7 out of the top 10 years being in this decade. Here's a histogram of this data.
+
+```{r rateyourmusic histogram}
+
+ rateyourmusic_df %>% ggplot(aes(x = Year)) + geom_histogram(binwidth = 1) + scale_x_continuous(breaks = seq(1986, 2018, by = 4)) + ggtitle("Frequency of Albums in RYM Top 200 by Year") + ylab("Number of Albums in RYM Top 200") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+One last question I want to take a look at is whether the albums that have the most ratings tend to be rated higher or lower. Highlighting a few of the artists with the lots of entries helps us visualize this better.
+
+```{r rateyourmusic ratings plot}
+
+rateyourmusic_df %>% ggplot(aes(x = Ratings, y = Rating)) + ggtitle("Rating vs. Number of Ratings for Albums") + geom_point(aes(colour = ifelse(grepl("Kanye West", Artist), "Kanye West",
+                                                                                           ifelse(grepl("Kendrick Lamar", Artist), "Kendrick Lamar", 
+                                                                                                  ifelse(grepl("Death Grips", Artist), "Death Grips", 
+                                                                                                         ifelse(grepl("A Tribe Called Quest", Artist), "A Tribe Called Quest", 
+                                                                                                                ifelse(grepl("The Roots", Artist), "The Roots", "Others"))))))) + labs(color = "Artist") + theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + geom_smooth(method = "lm", se = FALSE)
+
+```
+
+*Popularity*
+
+Now that we have critical and fan data we can start to look at the popularity of rappers. Let's look at sales, because this is a good objective measure of popularity.
+
+I wasn't able to find a nice comprehensive dataset of sales, so I turned to the next best thing. The [riaa](https://www.riaa.com/), or Recording Industry Association of American Artists, tracks sales and certifies albums as Gold or Platinum, for 500,000 or 1 million units sold, respectively. You can [search their certifications](https://www.riaa.com/gold-platinum/), so this is where we will get our data from. Any search with more than a few results requires you to click on a "load more results" button which would make scraping this harder than it needed to be, so we are going to limit our searches to one month at a time. We will start in the year 1982 (the first hip hop entries in the rateyourmusic and acclaimedmusic databases) and search by month up until now. Genres are only applied to certifications made starting from 2015, so we won't be able to filter by hip hop. We can take care of this later, though. To make this code a little more readable, we will first create a dataframe with the start dates and end dates of all the searches we want to make.
+
+```{r riaa prepare scrape}
+
+# a few constants we declare for readability
+
+START_YEAR <- 1982
+END_YEAR <- 2018
+PERIODS_PER_YEAR <- 12
+
+# add start dates to every row
+
+riaa_dates <- data.frame(Date_From = 1:((END_YEAR - START_YEAR + 1) * PERIODS_PER_YEAR))
+for(i in 0:(END_YEAR - START_YEAR)) {
+  for(j in 1:PERIODS_PER_YEAR) {
+    riaa_dates$Date_From[(i * PERIODS_PER_YEAR) + j] = paste0(START_YEAR + i, "-", str_pad((j * 12 / PERIODS_PER_YEAR) - 1, 2, pad = "0"), "-01")
+  }
+}
+
+# add end dates to every row
+
+for (i in 1:((END_YEAR - START_YEAR + 1) * PERIODS_PER_YEAR -1)) {
+  riaa_dates$Date_To[i] = riaa_dates$Date_From[i + 1]
+}
+
+# create empty tables, one for entries, and one specifically for awards that we will use in scraping
+
+riaa_tab = data.frame(Award = character(), Artist = character(), Title = character(), Certification_Date = character(), Label = character())
+
+riaa_awards_tab = data.frame(Award = character())
+
+# the dates of individual searches we will be doing
+
+head(riaa_dates)
+
+```
+
+Now we can perform all of these 444 searches and scrape the data from each one.
+
+```{r riaa scrape}
+
+riaa_url <- "https://www.riaa.com/gold-platinum/?tab_active=default-award&ar=&ti=&lab=&genre=&format=Album&date_option=certification&from=2000-01-01&to=2001-01-01&award=&type=&category=&adv=SEARCH#search_section"
+
+riaa_url_beginning <- "https://www.riaa.com/gold-platinum/?tab_active=default-award&ar=&ti=&lab=&genre=&format=Album&date_option=certification&from="
+
+riaa_url_middle <- "&to="
+
+riaa_url_end <- "&award=&type=&category=&adv=SEARCH#search_section"
+
+
+
+for (i in 1:nrow(riaa_dates)) {
+  
+  # concatenate the url we will use for each search with the dates we are searching from
+  
+  riaa_url <- paste0(riaa_url_beginning, riaa_dates$Date_From[i], riaa_url_middle, riaa_dates$Date_To[i], riaa_url_end)
+   
+  # augment our tables with search results - this is surrounded by a try block because if a search returns no results, the table we need doesn't exist and we get an error
+      try(
+        {riaa_tab <- rbind(riaa_tab, riaa_url %>% read_html() %>%
+        html_node("#search-award-table") %>% html_table(fill = TRUE));
+        riaa_awards_tab <- rbind(riaa_awards_tab, as.data.frame(as.character(riaa_url %>% read_html() %>% html_nodes(".award_cell"))))},
+        silent = TRUE)
+}
+
+colnames(riaa_awards_tab) <- "Award"
+
+# add awards to our table
+
+riaa_tab$Award = as.character(riaa_awards_tab$Award)
+
+# what we have so far
+
+head(riaa_tab)
+
+```
+
+This data doesn't require much tidying. We simply need to keep the information we need, fix the award column, and get rid of duplicates.
+
+```{r riaa tidy}
+
+riaa_df <- riaa_tab %>% select(c("Award", "Artist", "Title", "Certification Date", "Label"))
+
+riaa_df <- riaa_df %>% mutate(Award = gsub("_", "", substr(Award, 155, 156))) %>% mutate(Award = ifelse(Award == "0", "Gold", paste0("Platinum ", Award, "x")))
+
+riaa_df <- riaa_df[-which(duplicated(riaa_df$Title)), ]
+
+head(riaa_df)
+
+```
+
+Now our data is tidy, but the obvious problem is that it's not all hip hop music. If we were to get a huge list of names of virtually every rapper and cross-check the two, we could then refine it. Let's turn to wikipedia to do just that. We first get huge lists of rappers and rap groups from wikipedia. We then remove duplicates and tidy it.
+
+```{r wikipedia scrape, warning = FALSE}
+
+wikipedia_url <- "https://en.wikipedia.org/wiki/List_of_hip_hop_musicians"
+
+wikipedia_dl <- wikipedia_url %>% read_html() %>% html_nodes(".column-width") %>% html_text()
+
+wikipedia_tab <- as.data.frame(wikipedia_dl)
+wikipedia_tab <- data.frame(do.call('rbind', strsplit(as.character(wikipedia_tab$wikipedia_dl),'\n',fixed=TRUE)))
+wikipedia_tab <- data.frame(lapply(wikipedia_tab, as.character), stringsAsFactors=FALSE)
+
+wikipedia_df <- 
+  data.frame(Artists = wikipedia_tab[, "X2"])
+
+for (i in 2:124) {
+  colname <- paste0("X", i)
+  wikipedia_df <- rbind(wikipedia_df, data.frame(Artists = wikipedia_tab[, colname]))
+}
+
+wikipedia_df <- as.data.frame(wikipedia_df[-which(duplicated(wikipedia_df$Artists)), ]) 
+colnames(wikipedia_df) = "Artists"
+wikipedia_df <- as.data.frame((wikipedia_df %>% mutate(Artists = gsub("\\[\\d\\]", "", as.character(Artists))) %>% arrange(Artists))[-1, ])
+colnames(wikipedia_df) = "Artists"
+
+
+wikipedia_groups_url <- "https://en.wikipedia.org/wiki/List_of_hip_hop_groups"
+wikipedia_groups_dl <- wikipedia_groups_url %>% read_html() %>% html_nodes(".column-width") %>% html_text()
+
+wikipedia_groups_tab <- as.data.frame(wikipedia_groups_dl)
+wikipedia_groups_tab <- data.frame(do.call('rbind', strsplit(as.character(wikipedia_groups_tab$wikipedia_groups_dl),'\n',fixed=TRUE)))
+wikipedia_groups_tab <- data.frame(lapply(wikipedia_groups_tab, as.character), stringsAsFactors=FALSE)
+
+wikipedia_groups_df <- 
+  data.frame(Artists = wikipedia_tab[, "X2"])
+for (i in 2:60) {
+  colname <- paste0("X", i)
+  wikipedia_groups_df <- rbind(wikipedia_groups_df, data.frame(Artists = wikipedia_groups_tab[, colname]))
+}
+
+
+wikipedia_groups_df <- as.data.frame(wikipedia_groups_df[-which(duplicated(wikipedia_groups_df$Artists)), ]) 
+colnames(wikipedia_groups_df) = "Artists"
+wikipedia_groups_df <- as.data.frame((wikipedia_groups_df %>% mutate(Artists = gsub("\\[\\d\\]", "", as.character(Artists))) %>% arrange(Artists))[-1, ])
+colnames(wikipedia_groups_df) = "Artists"
+
+wikipedia_df <- rbind(wikipedia_df, wikipedia_groups_df)
+
+
+```
+
+We can now check our riaa dataframe with a dataframe of rappers. Due to changes in stylization of rapper's names there are a small number of inconsistencies which will cause them appear differently in the riaa/wikipedia. The three biggest rappers which this happened to are The Notorious B.I.G., Tupac, and MC Hammer, so we add specific exceptions to those three.
+
+```{r riaa filter, warning = TRUE}
+
+riaa_hh <- riaa_df %>% filter((Artist %in% riaa_df$Artist[gsub(" ", "", tolower(riaa_df$Artist)) %in% gsub(" ", "", tolower(wikipedia_df$Artists))]) | Artist %in% c("NOTORIOUS B.I.G.", "2 PAC", "HAMMER")) %>% filter(Award != "Platinum lax")
+
+```
+
+Now that it's filtered, let's take a look as who has sold the most records of all time in hip hop. Sales are measured here in millions.
+
+```{r riaa top sellers}
+
+riaa_hh <- riaa_hh %>% mutate(Sales = ifelse(Award == "Gold", .5, as.double(substr(Award, 10, nchar(Award) - 1))))
+
+riaa_total_sales <- riaa_hh %>% group_by(Artist) %>% summarise(tot = sum(Sales))
+
+```
+
+
+### **Conclusion** ###
+
+Here are the top artists from each of our categories, for comparison.
+
+```{r results}
+
+head(acclaimedmusic_df, 10)
+head(rateyourmusic_df, 10)
+head(riaa_hh %>% arrange(desc(Sales)), 10)
+
+```
+
+There are a few contenders for greatest of all time, but not one clear victor. The highest selling albums of all time are not completeley alligned with best received. We have definitive answers for all three of these categories, however, and were able to draw a few helpful conclusions along the way.
